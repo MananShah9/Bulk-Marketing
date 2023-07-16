@@ -44,6 +44,28 @@ const upload = multer({ storage });
 
 const pool = new Pool(dbConfig);
 
+// Endpoint: Get Company by Company ID
+app.get('/company', authenticate, async (req, res) => {
+	try {
+ 
+	  // Retrieve the company from the database
+	  const query = 'SELECT * FROM Companies WHERE company_firebase_id = $1';
+	  const result = await pool.query(query, [req.userId]);
+  
+	  // Check if the company exists
+	  if (result.rows.length === 0) {
+		return res.status(404).json({ error: 'Company not found' });
+	  }
+  
+	  const company = result.rows[0];
+	  res.status(200).json(company);
+	} catch (error) {
+	  console.error('Error retrieving company:', error);
+	  res.status(500).json({ error: 'Failed to retrieve the company' });
+	}
+  });
+  
+
 // Endpoint: Create a Company
 app.post('/companies', authenticate, async (req, res) => {
   try {
