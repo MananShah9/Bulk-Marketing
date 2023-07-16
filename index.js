@@ -71,7 +71,7 @@ app.get('/company/templates', authenticate, async (req, res) => {
 	try {
 
 	  // Retrieve the templates of the company from the database
-	  const query = 'SELECT * FROM MessageTemplates WHERE company_id = $1';
+	  const query = 'SELECT * FROM MessageTemplates WHERE company_firebase_id = $1';
 	  const result = await pool.query(query, [req.userId]);
   
 	  const templates = result.rows;
