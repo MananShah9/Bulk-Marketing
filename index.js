@@ -66,6 +66,22 @@ app.get('/company', authenticate, async (req, res) => {
   });
   
 
+  // Endpoint: Get All Templates of a Company
+app.get('/company/templates', authenticate, async (req, res) => {
+	try {
+
+	  // Retrieve the templates of the company from the database
+	  const query = 'SELECT * FROM MessageTemplates WHERE company_id = $1';
+	  const result = await pool.query(query, [req.userId]);
+  
+	  const templates = result.rows;
+	  res.status(200).json(templates);
+	} catch (error) {
+	  console.error('Error retrieving templates:', error);
+	  res.status(500).json({ error: 'Failed to retrieve templates' });
+	}
+  });
+
 // Endpoint: Create a Company
 app.post('/companies', authenticate, async (req, res) => {
   try {
@@ -87,9 +103,8 @@ app.post('/companies', authenticate, async (req, res) => {
 });
 
 // Endpoint: Buy Credits
-app.post('/companies/:company_id/buy-credits', authenticate, async (req, res) => {
+app.post('/company/buy-credits', authenticate, async (req, res) => {
   try {
-    const { company_id } = req.params;
     const { credits } = req.body;
 
     // Validate input
@@ -99,8 +114,8 @@ app.post('/companies/:company_id/buy-credits', authenticate, async (req, res) =>
 
     // Update the credits for the company in the database
     await pool.query(
-      'UPDATE Companies SET credits = credits + $1 WHERE company_id = $2',
-      [credits, company_id]
+      'UPDATE Companies SET credits = credits + $1 WHERE company_firebase_id = $2',
+      [credits, req.userId]
     );
 
     res.status(200).json({ success: true });
