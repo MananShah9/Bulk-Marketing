@@ -1,12 +1,11 @@
 const express = require('express');
 const admin = require('./src/config/firebase-config');
 const { v4: uuidv4 } = require('uuid');
-const multer = require('multer');
-const path = require('path');
 const helmet = require('helmet');
 const { Pool } = require('pg');
 const dbConfig = require('./src/config/dbConfig');
 
+const pool = new Pool(dbConfig);
 
 // Initialize Express.js
 const app = express();
@@ -44,164 +43,365 @@ const authenticate = async (req, res, next) => {
     }
     const token = authorizationHeader.split('Bearer ')[1].trim();
     const decodedToken = await admin.auth().verifyIdToken(token);
-    req.userEmail = decodedToken.email;
-    req.userId = decodedToken.uid;
+    req.phone_number = decodedToken.phone_number||'';
+    req.userEmail = decodedToken.email||'';
+    // req.userId = decodedToken.uid;
     next();
   } catch (error) {
     res.status(401).json({ error: 'Unauthorized' });
   }
 };
 
-// Multer Configuration for File Uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'attachments/');
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const attachmentPath = `attachments/${uniqueSuffix}${path.extname(file.originalname)}`;
-    cb(null, attachmentPath);
-  }
-});
-const upload = multer({ storage });
 
-const pool = new Pool(dbConfig);
+app.post('/users/signup',authenticate, async (req, res) => {
+  const { name } = req.body;
 
-// Endpoint: Get Company by Company ID
-app.get('/company', authenticate, async (req, res) => {
   try {
-    // Retrieve the company from the database
-    const query = 'SELECT * FROM Companies WHERE primary_email = $1';
-    const result = await pool.query(query, [req.userEmail]);
-
-    // Check if the company exists
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Company not found' });
-    }
-
-    const company = result.rows[0];
-    res.status(200).json(company);
-  } catch (error) {
-    console.error('Error retrieving company:', error);
-    res.status(500).json({ error: 'Failed to retrieve the company' });
-  }
-});
-
-// Endpoint: Get all Companies
-app.get('/companies', authenticate, async (req, res) => {
-  try {
-    const query = 'SELECT * FROM Companies';
-    const result = await pool.query(query);
-
-    const companies = result.rows;
-    res.status(200).json(companies)
-  }
-  catch (error) {
-    console.error('Error retrieving companies:', error);
-    res.status(500).json({ error: 'Failed to retrieve companies' });
-  }
-});
-
-// Endpoint: Delete a Company
-app.delete('/company/:company_id', authenticate, async (req, res) => {
-  try {
-    console.log(req.params.company_id);
-    // delete
-    let delete_status = await pool.query(
-      'DELETE FROM  Companies WHERE company_id = $1',
-      [req.params.company_id]
+    // Check if the user already exists in the database based on email or phone number
+    const existingUser = await pool.query(
+      'SELECT * FROM Users WHERE email = $1 OR phone_number = $2',
+      [req.userEmail,req.phone_number]
     );
 
-    res.status(201).json({ 'delete_status': delete_status });
+    if (existingUser.rowCount > 0) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+
+    // Insert the new user into the database
+    const newUser = await pool.query(
+      'INSERT INTO Users ( name, email, phone_number) VALUES ($1, $2, $3) RETURNING *',
+      [ name, req.userEmail,req.phone_number]
+    );
+
+    res.status(200).json(newUser.rows[0]);
   } catch (error) {
-    console.error('Error deleting company:', error);
-    res.status(500).json({ error: 'Failed to delete the company' });
+    console.error('Error signing up user:', error);
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-// Endpoint: Get All Templates of a Company
-app.get('/company/templates', authenticate, async (req, res) => {
+
+app.post('/users/signin',authenticate, async (req, res) => {
+
   try {
 
-    // Retrieve the templates of the company from the database
-    const query = 'SELECT * FROM MessageTemplates,Companies WHERE MessageTemplates.company_id = Companies.company_id and Companies.primary_email = $1';
-    const result = await pool.query(query, [req.userEmail]);
+    // Check if the user exists in the database based on email or phone number
+    const user = await pool.query(
+      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
+      [req.userEmail,req.phone_number]
+    );
 
-    const templates = result.rows;
-    res.status(200).json(templates);
+    if (user.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.status(200).send(user.rows[0]);
   } catch (error) {
-    console.error('Error retrieving templates:', error);
-    res.status(500).json({ error: 'Failed to retrieve templates' });
+    console.error('Error signing in user:', error);
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-// Endpoint: Create a Company
-app.post('/companies', authenticate, async (req, res) => {
-  try {
-    const { name, description, primaryEmail, primaryPhoneNumber } = req.body;
-    const company_id = uuidv4();
-    const credits = 100;
+app.post('/companies',authenticate, async (req, res) => {
+  const { name, description } = req.body;
 
-    // Save the company details to the database
+  try {
+
+    const user = await pool.query(
+      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
+      [req.userEmail,req.phone_number]
+    );
+
+    if (user.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+      
+    const adminId = user.rows[0].user_id;
+    
+    // Create a new company with the provided details and the user as the admin
+    const newCompany = await pool.query(
+      'INSERT INTO Companies (name, description, admin) VALUES ($1, $2, $3) RETURNING *',
+      [name, description, adminId]
+    );
+
+    res.status(200).json(newCompany.rows[0]);
+  } catch (error) {
+    console.error('Error creating company:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+app.post('/companies/:companyId/users', authenticate,async (req, res) => {
+  const { companyId } = req.params;
+  const { userId } = req.body;
+
+  try {
+    
+    const user = await pool.query(
+      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
+      [req.userEmail,req.phone_number]
+    );
+
+    if (user.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+      
+    const adminId = user.rows[0].user_id;
+
+    // Check if the user is the admin of the company
+    const isAdmin = await pool.query(
+      'SELECT * FROM Companies WHERE company_id = $1 AND admin = $2',
+      [companyId, adminId]
+    );
+
+    if (isAdmin.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Add the user to the specified company
     await pool.query(
-      'INSERT INTO Companies (company_id,company_firebase_id, name, description, primary_email, primary_phone_number,credits) VALUES ($1, $2, $3, $4, $5 , $6, $7)',
-      [company_id, req.userId, name, description, primaryEmail, primaryPhoneNumber, credits]
+      'INSERT INTO CompanyUsers (company_id, user_id) VALUES ($1, $2)',
+      [companyId, userId]
     );
 
-    res.status(201).json({ company_id });
+    res.sendStatus(200);
   } catch (error) {
-    console.error('Error creating a company:', error);
-    res.status(500).json({ error: 'Failed to create the company' });
+    console.error('Error adding user to company:', error);
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-// Endpoint: Buy Credits
-app.post('/company/buy-credits', authenticate, async (req, res) => {
+app.get('/users/companies', authenticate,async (req, res) => {
+
   try {
-    const { credits } = req.body;
-
-    // Validate input
-    if (!Number.isInteger(credits) || credits <= 0) {
-      return res.status(400).json({ error: 'Invalid credits value' });
-    }
-
-    // Update the credits for the company in the database
-    let dbResult=await pool.query(
-      'UPDATE Companies SET credits = credits + $1 WHERE primary_email = $2',
-      [credits, req.userEmail]
+    const user = await pool.query(
+      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
+      [req.userEmail,req.phone_number]
     );
 
-    res.status(200).json({ 'rowsUpdated': dbResult.rowCount });
+    if (user.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userId = user.rows[0].user_id;
+    
+
+    // Retrieve the companies associated with the specified user
+    console.log(userId);
+    const companies = await pool.query(
+      `SELECT * FROM Companies
+       JOIN CompanyUsers ON Companies.company_id = CompanyUsers.company_id
+       JOIN Users ON Users.user_id = CompanyUsers.user_id
+       WHERE Users.user_id = $1`,
+      [userId]
+    );
+
+    res.status(200).json(companies.rows);
+  } catch (error) {
+    console.error('Error retrieving user companies:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+app.get('/users/search', async (req, res) => {
+  const { prefix } = req.query;
+
+  try {
+    // Retrieve users with email or phone number starting with the specified prefix
+    const users = await pool.query(
+      'SELECT * FROM Users WHERE email LIKE $1 OR phone_number LIKE $1',
+      [`${prefix}%`]
+    );
+
+    res.status(200).json(users.rows);
+  } catch (error) {
+    console.error('Error retrieving users:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+app.post('/companies/:companyId/credits',authenticate, async (req, res) => {
+  const { companyId } = req.params;
+  const { credits } = req.body;
+
+  try {
+
+    // Update the credits for the specified company
+    await pool.query(
+      'UPDATE Companies SET credits = credits + $1 WHERE company_id = $2',
+      [credits, companyId]
+    );
+
+    res.sendStatus(200);
   } catch (error) {
     console.error('Error buying credits:', error);
-    res.status(500).json({ error: 'Failed to buy credits' });
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-// Endpoint: Create Message Template
-app.post('/companies/message-templates', authenticate, async (req, res) => {
+app.post('/companies/:companyId/recipients', authenticate, async (req, res) => {
+  const { companyId } = req.params;
+  const recipients = req.body; // Array of recipient objects
+
   try {
-    const company_id = '';
-    const { template_name, message_template } = req.body;
 
-    // Validate input
-    if (!template_name || !message_template) {
-      return res.status(400).json({ error: 'Missing template name or message template' });
-    }
-
-    // Save the message template details to the database
-    const template_id = uuidv4();
-    await pool.query(
-      'INSERT INTO MessageTemplates (template_id, company_id, template_name, message_template) VALUES ($1, $2, $3, $4)',
-      [template_id, company_id, template_name, message_template]
+    
+    const user = await pool.query(
+      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
+      [req.userEmail,req.phone_number]
     );
 
-    res.status(201).json({ template_id });
+    if (user.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userId = user.rows[0].user_id;
+
+    // Check if the user making the request belongs to the specified company
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId]
+    );
+
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const newRecipients = [];
+
+    // Iterate over the recipients array and add each recipient to the company
+    for (const recipient of recipients) {
+      const { name, contactMedium, contactInformation } = recipient;
+
+      // Add a new recipient to the specified company
+      const newRecipient = await pool.query(
+        'INSERT INTO Recipients (company_id, name, contact_medium, contact_information) VALUES ($1, $2, $3, $4) RETURNING *',
+        [companyId, name, contactMedium, contactInformation]
+      );
+
+      newRecipients.push(newRecipient.rows[0]);
+    }
+
+    res.status(200).json(newRecipients);
   } catch (error) {
-    console.error('Error creating a message template:', error);
-    res.status(500).json({ error: 'Failed to create the message template' });
+    console.error('Error adding recipients:', error);
+    res.status(500).json({ error: 'An error occurred' });
   }
 });
+
+
+app.get('/companies/:companyId/recipients', authenticate, async (req, res) => {
+  const { companyId } = req.params;
+
+  try {
+    
+    const user = await pool.query(
+      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
+      [req.userEmail,req.phone_number]
+    );
+
+    if (user.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userId = user.rows[0].user_id;
+    // Check if the user making the request belongs to the specified company
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId]
+    );
+
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Retrieve recipients for the specified company
+    const recipients = await pool.query(
+      'SELECT * FROM Recipients WHERE company_id = $1',
+      [companyId]
+    );
+
+    res.status(200).json(recipients.rows);
+  } catch (error) {
+    console.error('Error retrieving recipients:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+const multer = require('multer');
+const path = require('path');
+
+// Set up the storage for file uploads
+const storage = multer.diskStorage({
+  destination: './attachments',
+  filename: (req, file, cb) => {
+    const filename = `${Date.now()}-${file.originalname}`;
+    cb(null, filename);
+  },
+});
+
+// Initialize multer
+const upload = multer({ storage });
+
+// Endpoint for creating message templates
+app.post(
+  '/companies/:companyId/message-templates',
+  upload.single('attachment'),
+  async (req, res) => {
+    const { companyId } = req.params;
+    const { templateName, messageTemplate } = req.body;
+    const attachmentFilename = req.file ? req.file.filename : null;
+
+    try {
+      // Create a new message template for the specified company
+      const newTemplate = await pool.query(
+        'INSERT INTO MessageTemplates (company_id, template_name, message_template, attachment_filename) VALUES ($1, $2, $3, $4) RETURNING *',
+        [companyId, templateName, messageTemplate, attachmentFilename]
+      );
+
+      res.status(200).json(newTemplate.rows[0]);
+    } catch (error) {
+      console.error('Error creating message template:', error);
+      res.status(500).json({ error: 'An error occurred' });
+    }
+  }
+);
+
+app.post('/companies/:companyId/message-sources', async (req, res) => {
+  const { companyId } = req.params;
+  const { type, value } = req.body;
+
+  try {
+    // Check if the company exists and the user making the request is an admin
+    const company = await pool.query(
+      'SELECT * FROM Companies WHERE company_id = $1 AND admin = $2',
+      [companyId, req.user]
+    );
+
+    if (company.rowCount === 0) {
+      return res.status(404).json({ error: 'Company not found or unauthorized' });
+    }
+
+    // Create a new MessageSource for the specified company
+    const newMessageSource = await pool.query(
+      'INSERT INTO MessageSources (company_id, type, value) VALUES ($1, $2, $3) RETURNING *',
+      [companyId, type, value]
+    );
+
+    res.status(200).json(newMessageSource.rows[0]);
+  } catch (error) {
+    console.error('Error creating MessageSource:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
 
 // Endpoint: Send Message
 app.post('/companies/send-message', authenticate, upload.array('attachments'), async (req, res) => {
