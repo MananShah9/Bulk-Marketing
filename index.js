@@ -204,9 +204,8 @@ app.post('/companies/message-templates', authenticate, async (req, res) => {
 });
 
 // Endpoint: Send Message
-app.post('/companies/:company_id/send-message', authenticate, upload.array('attachments'), async (req, res) => {
+app.post('/companies/send-message', authenticate, upload.array('attachments'), async (req, res) => {
   try {
-    const { company_id } = req.params;
     const { recipient_ids, template_id, source_id } = req.body;
     const attachments = req.files;
 
@@ -222,8 +221,8 @@ app.post('/companies/:company_id/send-message', authenticate, upload.array('atta
     const recipientCount = recipient_ids.length;
     const creditsToDeduct = recipientCount;
     await pool.query(
-      'UPDATE Companies SET credits = credits - $1 WHERE company_id = $2',
-      [creditsToDeduct, company_id]
+      'UPDATE Companies SET credits = credits - $1 WHERE primary_email = $2',
+      [creditsToDeduct, req.userEmail]
     );
 
     // Save the sent message details to the database
