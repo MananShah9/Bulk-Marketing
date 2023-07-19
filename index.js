@@ -155,7 +155,7 @@ app.post('/companies', authenticate, async (req, res) => {
     );
     const addUserToCompanyResult = await pool.query(
       'INSERT INTO CompanyUsers (company_id, user_id) VALUES ($1, $2)',
-      [newCompany.rows[0].companyId, adminId]
+      [newCompany.rows[0].company_id, adminId]
     );
 
     res.status(200).json(newCompany.rows[0]);
