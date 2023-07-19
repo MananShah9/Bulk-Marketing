@@ -3,3 +3,4 @@ src/config
 *.old
 package-lock.json
 db.sql
+attachments

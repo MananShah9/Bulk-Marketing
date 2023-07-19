@@ -113,6 +113,28 @@ app.post('/users/signin', authenticate, async (req, res) => {
   }
 });
 
+
+app.put('/users/update-name', authenticate, async (req, res) => {
+  const { name } = req.body;
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update the user's name in the Users table
+    await pool.query('UPDATE Users SET name = $1 WHERE user_id = $2', [name, user.user_id]);
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error updating user name:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
+
+
+
 app.post('/companies', authenticate, async (req, res) => {
   const { name, description } = req.body;
 
@@ -130,6 +152,10 @@ app.post('/companies', authenticate, async (req, res) => {
     const newCompany = await pool.query(
       'INSERT INTO Companies (name, description, admin) VALUES ($1, $2, $3) RETURNING *',
       [name, description, adminId]
+    );
+    const addUserToCompanyResult = await pool.query(
+      'INSERT INTO CompanyUsers (company_id, user_id) VALUES ($1, $2)',
+      [newCompany.rows[0].companyId, adminId]
     );
 
     res.status(200).json(newCompany.rows[0]);
@@ -176,6 +202,41 @@ app.post('/companies/:companyId/users', authenticate, async (req, res) => {
   }
 });
 
+
+app.put('/companies/:companyId/update', authenticate, async (req, res) => {
+  const { companyId } = req.params;
+  const { name, description } = req.body;
+
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if the user is the admin of the specified company
+    const isAdmin = await pool.query(
+      'SELECT * FROM Companies WHERE company_id = $1 AND admin = $2',
+      [companyId, user.user_id]
+    );
+
+    if (isAdmin.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Update the company's name and description in the Companies table
+    await pool.query(
+      'UPDATE Companies SET name = $1, description = $2 WHERE company_id = $3',
+      [name, description, companyId]
+    );
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error updating company name and description:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
 app.get('/users/companies', authenticate, async (req, res) => {
 
   try {
@@ -203,6 +264,36 @@ app.get('/users/companies', authenticate, async (req, res) => {
     res.status(500).json({ error: 'An error occurred' });
   }
 });
+
+app.delete('/companies/:companyId/users/:userId', authenticate, async (req, res) => {
+  const { companyId, userId } = req.params;
+
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if the user is the admin of the specified company
+    const isAdmin = await pool.query(
+      'SELECT * FROM Companies WHERE company_id = $1 AND admin = $2',
+      [companyId, user.user_id]
+    );
+
+    if (isAdmin.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Remove the user from the CompanyUsers table for the specified company
+    await pool.query('DELETE FROM CompanyUsers WHERE company_id = $1 AND user_id = $2', [companyId, userId]);
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error removing user from company:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
 
 app.get('/users/search', authenticate, async (req, res) => {
   const { prefix } = req.query;
@@ -320,6 +411,49 @@ app.get('/companies/:companyId/recipients', authenticate, async (req, res) => {
     res.status(500).json({ error: 'An error occurred' });
   }
 });
+
+
+app.delete('/companies/:companyId/recipients', authenticate, async (req, res) => {
+  const { companyId } = req.params;
+  const { recipientIds } = req.body;
+
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if the user is the admin of the specified company
+    const isAdmin = await pool.query(
+      'SELECT * FROM Companies WHERE company_id = $1 AND admin = $2',
+      [companyId, user.user_id]
+    );
+
+    if (isAdmin.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Get recipients associated with the company
+    const recipients = await pool.query('SELECT recipient_id FROM Recipients WHERE company_id = $1', [companyId]);
+    const existingRecipientIds = recipients.rows.map((recipient) => recipient.recipient_id);
+
+    const recipientsToDelete = recipientIds.filter((id) => existingRecipientIds.includes(id));
+
+    if (recipientsToDelete.length === 0) {
+      return res.status(404).json({ error: 'Recipients not found' });
+    }
+
+    // Delete recipients from the Recipients table for the specified company
+    await pool.query('DELETE FROM Recipients WHERE company_id = $1 AND recipient_id = ANY($2)', [companyId, recipientsToDelete]);
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error deleting recipients:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
 
 const multer = require('multer');
 const path = require('path');
@@ -449,13 +583,6 @@ app.post('/companies/:companyId/message-sources',authenticate, async (req, res) 
 
 
 
-
-
-
-
-
-
-
 // Endpoint: Send Message
 app.post('/companies/send-message', authenticate, upload.array('attachments'), async (req, res) => {
   try {
@@ -503,6 +630,90 @@ app.post('/companies/send-message', authenticate, upload.array('attachments'), a
     res.status(500).json({ error: 'Failed to send the message' });
   }
 });
+
+
+
+
+const csvtojson = require('csvtojson');
+app.post('/process-file', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  const fileFormat = req.file.originalname.split('.').pop().toLowerCase();
+  if (fileFormat !== 'csv' && fileFormat !== 'xls' && fileFormat !== 'xlsx') {
+    return res.status(400).json({ error: 'Invalid file format. Only CSV or Excel files are accepted.' });
+  }
+
+  csvtojson({ checkType: true })
+    .fromFile(req.file.path)
+    .then((jsonObj) => {
+      if (jsonObj.length === 0) {
+        return res.status(400).json({ error: 'Empty file' });
+      }
+
+      const columnNames = {
+        name: null,
+        mobileNumber: null,
+      };
+
+      // Function to sanitize the mobile number
+      const sanitizeMobileNumber = (mobileNumber) => {
+        // Remove any non-digit characters
+        console.log(mobileNumber);
+        const sanitized = (mobileNumber+'').replace(/\D/g, '');
+
+        // Check if the number starts with 91 or +91 and remove it
+        if (sanitized.startsWith('91')) {
+          return sanitized.substring(2);
+        } else if (sanitized.startsWith('0')) {
+          return sanitized.substring(1);
+        }
+
+        return sanitized;
+      };
+
+      // Function to validate if the mobile number is valid Indian number
+      const isValidMobileNumber = (mobileNumber) => /^[0-9]{10}$/.test(mobileNumber);
+
+      // Search for headers containing names and mobile numbers
+      for (const row of jsonObj) {
+        for (const [key, value] of Object.entries(row)) {
+          if (columnNames.name === null && typeof value === 'string' && value.trim() !== '' && !isValidMobileNumber(value)) {
+            columnNames.name = key;
+          } else if (columnNames.mobileNumber === null && isValidMobileNumber(sanitizeMobileNumber(value))) {
+            columnNames.mobileNumber = key;
+          }
+        }
+
+        if (columnNames.name && columnNames.mobileNumber) {
+          // If both columns are found, break the loop
+          break;
+        }
+      }
+
+      if (!columnNames.name || !columnNames.mobileNumber) {
+        return res
+          .status(400)
+          .json({ error: 'Could not find the name and/or mobile number columns in the file' });
+      }
+
+      // Extract the required data and construct the response
+      const result = jsonObj.map((row) => ({
+        name: row[columnNames.name],
+        mobileNumber: sanitizeMobileNumber(row[columnNames.mobileNumber]),
+      }));
+
+      return res.status(200).json(result);
+    })
+    .catch((err) => {
+      console.error(err);
+      return res.status(500).json({ error: 'Error processing the file' });
+    });
+});
+
+
+
 
 // Start the server
 app.listen(5000, () => {
