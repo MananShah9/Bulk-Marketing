@@ -545,7 +545,7 @@ app.get('/companies/:companyId/message-templates', authenticate, async (req, res
   }
 });
 
-app.post('/companies/:companyId/message-sources',authenticate, async (req, res) => {
+app.post('/companies/:companyId/message-sources', authenticate, async (req, res) => {
   const { companyId } = req.params;
   const { type, value } = req.body;
 
@@ -635,7 +635,7 @@ app.post('/companies/send-message', authenticate, upload.array('attachments'), a
 
 
 const csvtojson = require('csvtojson');
-app.post('/process-file', upload.single('file'), (req, res) => {
+app.post('/process-file', authenticate, upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
@@ -660,11 +660,10 @@ app.post('/process-file', upload.single('file'), (req, res) => {
       // Function to sanitize the mobile number
       const sanitizeMobileNumber = (mobileNumber) => {
         // Remove any non-digit characters
-        console.log(mobileNumber);
-        const sanitized = (mobileNumber+'').replace(/\D/g, '');
+        const sanitized = (mobileNumber + '').replace(/\D/g, '');
 
         // Check if the number starts with 91 or +91 and remove it
-        if (sanitized.startsWith('91')) {
+        if (sanitized.startsWith('91') && !sanitized.endsWith('00000')) {
           return sanitized.substring(2);
         } else if (sanitized.startsWith('0')) {
           return sanitized.substring(1);
@@ -674,7 +673,7 @@ app.post('/process-file', upload.single('file'), (req, res) => {
       };
 
       // Function to validate if the mobile number is valid Indian number
-      const isValidMobileNumber = (mobileNumber) => /^[0-9]{10}$/.test(mobileNumber);
+      const isValidMobileNumber = (mobileNumber) => /^[0-9]{10}$/.test(mobileNumber) && !/e/i.test(mobileNumber);
 
       // Search for headers containing names and mobile numbers
       for (const row of jsonObj) {
@@ -699,10 +698,15 @@ app.post('/process-file', upload.single('file'), (req, res) => {
       }
 
       // Extract the required data and construct the response
-      const result = jsonObj.map((row) => ({
-        name: row[columnNames.name],
-        mobileNumber: sanitizeMobileNumber(row[columnNames.mobileNumber]),
-      }));
+      const result = jsonObj.map((row) => {
+        const name = row[columnNames.name]
+        const mobileNumber = sanitizeMobileNumber(row[columnNames.mobileNumber])
+        if (mobileNumber != null && mobileNumber != "" && mobileNumber.length < 11 && name.length < 20)
+          return ({
+            name: name,
+            mobileNumber: mobileNumber,
+          })
+      }).filter((element) => (element != null));
 
       return res.status(200).json(result);
     })
