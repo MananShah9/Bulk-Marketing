@@ -43,8 +43,8 @@ const authenticate = async (req, res, next) => {
     }
     const token = authorizationHeader.split('Bearer ')[1].trim();
     const decodedToken = await admin.auth().verifyIdToken(token);
-    req.phone_number = decodedToken.phone_number||'';
-    req.userEmail = decodedToken.email||'';
+    req.phone_number = decodedToken.phone_number || '';
+    req.userEmail = decodedToken.email || '';
     // req.userId = decodedToken.uid;
     next();
   } catch (error) {
@@ -53,24 +53,38 @@ const authenticate = async (req, res, next) => {
 };
 
 
-app.post('/users/signup',authenticate, async (req, res) => {
+
+let getUserByEmailOrPhone = async (email, phone_number) => {
+  const user = await pool.query(
+    'SELECT * FROM Users WHERE ((email = $1 AND email != $3 ) OR (phone_number = $2 AND phone_number != $3)) ',
+    [email, phone_number, '']
+  );
+
+  if (user.rowCount === 0) {
+    return null;
+  }
+
+  return (user.rows[0]);
+
+}
+
+
+
+app.post('/users/signup', authenticate, async (req, res) => {
   const { name } = req.body;
 
   try {
     // Check if the user already exists in the database based on email or phone number
-    const existingUser = await pool.query(
-      'SELECT * FROM Users WHERE email = $1 OR phone_number = $2',
-      [req.userEmail,req.phone_number]
-    );
+    const existingUser = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
 
-    if (existingUser.rowCount > 0) {
+    if (existingUser != null) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
     // Insert the new user into the database
     const newUser = await pool.query(
       'INSERT INTO Users ( name, email, phone_number) VALUES ($1, $2, $3) RETURNING *',
-      [ name, req.userEmail,req.phone_number]
+      [name, req.userEmail, req.phone_number]
     );
 
     res.status(200).json(newUser.rows[0]);
@@ -81,43 +95,37 @@ app.post('/users/signup',authenticate, async (req, res) => {
 });
 
 
-app.post('/users/signin',authenticate, async (req, res) => {
+app.post('/users/signin', authenticate, async (req, res) => {
 
   try {
 
     // Check if the user exists in the database based on email or phone number
-    const user = await pool.query(
-      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
-      [req.userEmail,req.phone_number]
-    );
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
 
-    if (user.rowCount === 0) {
+    if (user === null) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.status(200).send(user.rows[0]);
+    res.status(200).send(user);
   } catch (error) {
     console.error('Error signing in user:', error);
     res.status(500).json({ error: 'An error occurred' });
   }
 });
 
-app.post('/companies',authenticate, async (req, res) => {
+app.post('/companies', authenticate, async (req, res) => {
   const { name, description } = req.body;
 
   try {
 
-    const user = await pool.query(
-      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
-      [req.userEmail,req.phone_number]
-    );
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
 
-    if (user.rowCount === 0) {
+    if (user === null) {
       return res.status(404).json({ error: 'User not found' });
     }
-      
-    const adminId = user.rows[0].user_id;
-    
+
+    const adminId = user.user_id;
+
     // Create a new company with the provided details and the user as the admin
     const newCompany = await pool.query(
       'INSERT INTO Companies (name, description, admin) VALUES ($1, $2, $3) RETURNING *',
@@ -131,22 +139,19 @@ app.post('/companies',authenticate, async (req, res) => {
   }
 });
 
-app.post('/companies/:companyId/users', authenticate,async (req, res) => {
+app.post('/companies/:companyId/users', authenticate, async (req, res) => {
   const { companyId } = req.params;
   const { userId } = req.body;
 
   try {
-    
-    const user = await pool.query(
-      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
-      [req.userEmail,req.phone_number]
-    );
 
-    if (user.rowCount === 0) {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+
+    if (user === null) {
       return res.status(404).json({ error: 'User not found' });
     }
-      
-    const adminId = user.rows[0].user_id;
+
+    const adminId = user.user_id;
 
     // Check if the user is the admin of the company
     const isAdmin = await pool.query(
@@ -171,19 +176,16 @@ app.post('/companies/:companyId/users', authenticate,async (req, res) => {
   }
 });
 
-app.get('/users/companies', authenticate,async (req, res) => {
+app.get('/users/companies', authenticate, async (req, res) => {
 
   try {
-    const user = await pool.query(
-      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
-      [req.userEmail,req.phone_number]
-    );
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
 
-    if (user.rowCount === 0) {
+    if (user === null) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const userId = user.rows[0].user_id;
-    
+    const userId = user.user_id;
+
 
     // Retrieve the companies associated with the specified user
     console.log(userId);
@@ -202,7 +204,7 @@ app.get('/users/companies', authenticate,async (req, res) => {
   }
 });
 
-app.get('/users/search', async (req, res) => {
+app.get('/users/search', authenticate, async (req, res) => {
   const { prefix } = req.query;
 
   try {
@@ -219,7 +221,7 @@ app.get('/users/search', async (req, res) => {
   }
 });
 
-app.post('/companies/:companyId/credits',authenticate, async (req, res) => {
+app.post('/companies/:companyId/credits', authenticate, async (req, res) => {
   const { companyId } = req.params;
   const { credits } = req.body;
 
@@ -244,16 +246,13 @@ app.post('/companies/:companyId/recipients', authenticate, async (req, res) => {
 
   try {
 
-    
-    const user = await pool.query(
-      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
-      [req.userEmail,req.phone_number]
-    );
 
-    if (user.rowCount === 0) {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number)
+
+    if (user === null) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const userId = user.rows[0].user_id;
+    const userId = user.user_id;
 
     // Check if the user making the request belongs to the specified company
     const userCompany = await pool.query(
@@ -292,16 +291,13 @@ app.get('/companies/:companyId/recipients', authenticate, async (req, res) => {
   const { companyId } = req.params;
 
   try {
-    
-    const user = await pool.query(
-      'SELECT * FROM Users WHERE (email = $1 OR phone_number = $2) ',
-      [req.userEmail,req.phone_number]
-    );
 
-    if (user.rowCount === 0) {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+
+    if (user === null) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const userId = user.rows[0].user_id;
+    const userId = user.user_id;
     // Check if the user making the request belongs to the specified company
     const userCompany = await pool.query(
       'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
@@ -342,7 +338,7 @@ const upload = multer({ storage });
 
 // Endpoint for creating message templates
 app.post(
-  '/companies/:companyId/message-templates',
+  '/companies/:companyId/message-templates', authenticate,
   upload.single('attachment'),
   async (req, res) => {
     const { companyId } = req.params;
@@ -350,6 +346,22 @@ app.post(
     const attachmentFilename = req.file ? req.file.filename : null;
 
     try {
+      const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+
+      if (user === null) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const userId = user.user_id;
+      // Check if the user making the request belongs to the specified company
+      const userCompany = await pool.query(
+        'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+        [companyId, userId]
+      );
+
+      if (userCompany.rowCount === 0) {
+        return res.status(403).json({ error: 'Unauthorized' });
+      }
+
       // Create a new message template for the specified company
       const newTemplate = await pool.query(
         'INSERT INTO MessageTemplates (company_id, template_name, message_template, attachment_filename) VALUES ($1, $2, $3, $4) RETURNING *',
@@ -364,19 +376,60 @@ app.post(
   }
 );
 
-app.post('/companies/:companyId/message-sources', async (req, res) => {
+
+app.get('/companies/:companyId/message-templates', authenticate, async (req, res) => {
+  const { companyId } = req.params;
+
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userId = user.user_id;
+    // Check if the user making the request belongs to the specified company
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId]
+    );
+
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+
+    // Retrieve message templates for the specified company
+    const templates = await pool.query(
+      'SELECT * FROM MessageTemplates WHERE company_id = $1',
+      [companyId]
+    );
+
+    res.status(200).json(templates.rows);
+  } catch (error) {
+    console.error('Error retrieving message templates:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+app.post('/companies/:companyId/message-sources',authenticate, async (req, res) => {
   const { companyId } = req.params;
   const { type, value } = req.body;
 
   try {
-    // Check if the company exists and the user making the request is an admin
-    const company = await pool.query(
-      'SELECT * FROM Companies WHERE company_id = $1 AND admin = $2',
-      [companyId, req.user]
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userId = user.user_id;
+    // Check if the user making the request belongs to the specified company
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId]
     );
 
-    if (company.rowCount === 0) {
-      return res.status(404).json({ error: 'Company not found or unauthorized' });
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
     }
 
     // Create a new MessageSource for the specified company
