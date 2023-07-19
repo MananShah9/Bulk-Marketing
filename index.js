@@ -148,19 +148,38 @@ app.post('/companies', authenticate, async (req, res) => {
 
     const adminId = user.user_id;
 
-    // Create a new company with the provided details and the user as the admin
-    const newCompany = await pool.query(
-      'INSERT INTO Companies (name, description, admin) VALUES ($1, $2, $3) RETURNING *',
-      [name, description, adminId]
-    );
-    const addUserToCompanyResult = await pool.query(
-      'INSERT INTO CompanyUsers (company_id, user_id) VALUES ($1, $2)',
-      [newCompany.rows[0].company_id, adminId]
-    );
+    // Start a transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    res.status(200).json(newCompany.rows[0]);
+      // Create a new company with the provided details and the user as the admin
+      const newCompany = await client.query(
+        'INSERT INTO Companies (name, description, admin) VALUES ($1, $2, $3) RETURNING *',
+        [name, description, adminId]
+      );
+
+      // Insert the admin user into the CompanyUsers table
+      await client.query(
+        'INSERT INTO CompanyUsers (company_id, user_id) VALUES ($1, $2)',
+        [newCompany.rows[0].company_id, adminId]
+      );
+
+      // Commit the transaction
+      await client.query('COMMIT');
+
+      res.status(200).json(newCompany.rows[0]);
+    } catch (error) {
+      // If any error occurs, rollback the transaction
+      await client.query('ROLLBACK');
+      console.error('Error creating company:', error);
+      res.status(500).json({ error: 'An error occurred' });
+    } finally {
+      // Release the client back to the pool
+      client.release();
+    }
   } catch (error) {
-    console.error('Error creating company:', error);
+    console.error('Error fetching user:', error);
     res.status(500).json({ error: 'An error occurred' });
   }
 });
