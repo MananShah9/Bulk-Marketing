@@ -748,6 +748,7 @@ app.post('/process-file', authenticate, upload.single('file'), (req, res) => {
   csvtojson({ checkType: true })
     .fromFile(req.file.path)
     .then((jsonObj) => {
+      console.log(jsonObj);
       if (jsonObj.length === 0) {
         return res.status(400).json({ error: 'Empty file' });
       }
@@ -803,8 +804,8 @@ app.post('/process-file', authenticate, upload.single('file'), (req, res) => {
         const mobileNumber = sanitizeMobileNumber(row[columnNames.mobileNumber])
         if (mobileNumber != null && mobileNumber != "" && mobileNumber.length < 11 && name.length < 20)
           return ({
-            name: name,
-            mobileNumber: mobileNumber,
+            "name": name,
+            "mobileNumber": mobileNumber,
           })
       }).filter((element) => (element != null));
 
