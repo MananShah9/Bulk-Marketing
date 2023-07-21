@@ -268,12 +268,10 @@ app.get('/users/companies', authenticate, async (req, res) => {
 
 
     // Retrieve the companies associated with the specified user
-    console.log(userId);
     const companies = await pool.query(
       `SELECT * FROM Companies
        JOIN CompanyUsers ON Companies.company_id = CompanyUsers.company_id
-       JOIN Users ON Users.user_id = CompanyUsers.user_id
-       WHERE Users.user_id = $1`,
+       WHERE CompanyUsers.user_id = $1`,
       [userId]
     );
 
