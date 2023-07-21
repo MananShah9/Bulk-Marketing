@@ -432,8 +432,7 @@ app.get('/companies/:companyId/recipients', authenticate, async (req, res) => {
 });
 
 
-app.delete('/companies/:companyId/recipients', authenticate, async (req, res) => {
-  const { companyId } = req.params;
+app.delete('/recipients', authenticate, async (req, res) => {
   const { recipientIds } = req.body;
 
   try {
@@ -442,28 +441,30 @@ app.delete('/companies/:companyId/recipients', authenticate, async (req, res) =>
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check if the user is the admin of the specified company
-    const isAdmin = await pool.query(
-      'SELECT * FROM Companies WHERE company_id = $1 AND admin = $2',
-      [companyId, user.user_id]
+    // Fetch the company IDs associated with the given recipient IDs
+    const recipientCompanyIds = await pool.query(
+      'SELECT DISTINCT company_id FROM Recipients WHERE recipient_id = ANY($1)',
+      [recipientIds]
     );
 
-    if (isAdmin.rowCount === 0) {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
-
-    // Get recipients associated with the company
-    const recipients = await pool.query('SELECT recipient_id FROM Recipients WHERE company_id = $1', [companyId]);
-    const existingRecipientIds = recipients.rows.map((recipient) => recipient.recipient_id);
-
-    const recipientsToDelete = recipientIds.filter((id) => existingRecipientIds.includes(id));
-
-    if (recipientsToDelete.length === 0) {
+    if (recipientCompanyIds.rowCount === 0) {
       return res.status(404).json({ error: 'Recipients not found' });
     }
 
-    // Delete recipients from the Recipients table for the specified company
-    await pool.query('DELETE FROM Recipients WHERE company_id = $1 AND recipient_id = ANY($2)', [companyId, recipientsToDelete]);
+    const userCompanyIds = await pool.query(
+      'SELECT company_id FROM CompanyUsers WHERE user_id = $1',
+      [user.user_id]
+    );
+
+    // Check if the user is part of the company for each recipient
+    for (const row of recipientCompanyIds.rows) {
+      if (!userCompanyIds.rows.some((userCompany) => userCompany.company_id === row.company_id)) {
+        return res.status(403).json({ error: 'Unauthorized' });
+      }
+    }
+
+    // Delete the recipients from the Recipients table for the specified recipient IDs
+    await pool.query('DELETE FROM Recipients WHERE recipient_id = ANY($1)', [recipientIds]);
 
     res.sendStatus(200);
   } catch (error) {
@@ -471,6 +472,7 @@ app.delete('/companies/:companyId/recipients', authenticate, async (req, res) =>
     res.status(500).json({ error: 'An error occurred' });
   }
 });
+
 
 
 
@@ -490,8 +492,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // Endpoint for creating message templates
-app.post(
-  '/companies/:companyId/message-templates', authenticate,
+app.post('/companies/:companyId/message-templates', authenticate,
   upload.single('attachment'),
   async (req, res) => {
     const { companyId } = req.params;
@@ -563,6 +564,51 @@ app.get('/companies/:companyId/message-templates', authenticate, async (req, res
     res.status(500).json({ error: 'An error occurred' });
   }
 });
+
+
+app.delete('/message-templates/:templateId', authenticate, async (req, res) => {
+  const { templateId } = req.params;
+
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if the message template with the given ID exists and get its company ID
+    const templateInfo = await pool.query(
+      'SELECT * FROM MessageTemplates WHERE template_id = $1',
+      [templateId]
+    );
+
+    if (templateInfo.rowCount === 0) {
+      return res.status(404).json({ error: 'Message template not found' });
+    }
+
+    const companyId = templateInfo.rows[0].company_id;
+
+    // Check if the user is part of the company associated with the message template
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, user.user_id]
+    );
+
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Delete the message template from the MessageTemplates table
+    await pool.query('DELETE FROM MessageTemplates WHERE template_id = $1', [templateId]);
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('Error deleting message template:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
+
 
 app.post('/companies/:companyId/message-sources', authenticate, async (req, res) => {
   const { companyId } = req.params;
