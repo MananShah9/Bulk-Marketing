@@ -282,6 +282,43 @@ app.get('/users/companies', authenticate, async (req, res) => {
   }
 });
 
+app.get('/companies/:companyId/users', authenticate, async (req, res) => {
+  const { companyId } = req.params;
+
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userId = user.user_id;
+
+    // Check if the user making the request belongs to the specified company
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId]
+    );
+
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+
+    // Retrieve the companies associated with the specified user
+    const companies = await pool.query(
+      `SELECT * FROM Users
+       JOIN CompanyUsers ON Users.user_id = CompanyUsers.user_id
+       WHERE CompanyUsers.company_id = $1`,
+      [companyId]
+    );
+
+    res.status(200).json(companies.rows);
+  } catch (error) {
+    console.error('Error retrieving user companies:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
 app.delete('/companies/:companyId/users/:userId', authenticate, async (req, res) => {
   const { companyId, userId } = req.params;
 
