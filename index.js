@@ -682,49 +682,130 @@ app.post('/companies/:companyId/message-sources', authenticate, async (req, res)
 
 
 
+app.get('/companies/:companyId/message-sources', authenticate, async (req, res) => {
+  const { companyId } = req.params;
+
+  try {
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userId = user.user_id;
+    // Check if the user making the request belongs to the specified company
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, userId]
+    );
+
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Create a new MessageSource for the specified company
+    const messageSources = await pool.query(
+      'Select * from MessageSources where value IS NOT NULL AND company_id=$1',
+      [companyId]
+    );
+
+    res.status(200).json(messageSources.rows);
+  } catch (error) {
+    console.error('Error creating MessageSource:', error);
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
+
+let scheduleMessages = async (recipient_ids, companyId, template_id, source_id) => {
+
+  for (const recipient of recipient_ids) {
+    const recepientCompany = await pool.query(
+      'SELECT company_id FROM Recipients WHERE company_id=$1 AND recipient_id = $2',
+      [companyId, recipient]
+    );
+    if (recepientCompany.rowCount == 1) {
+      const newSentMessages = await pool.query(
+        'INSERT INTO SentMessages (recipient_id,template_id,source_id,sendStatus) VALUES ($1, $2, $3, $4) RETURNING *',
+        [recipient, template_id, source_id, "Queue"]
+      );
+    }
+  }
+
+}
 
 // Endpoint: Send Message
-app.post('/companies/send-message', authenticate, upload.array('attachments'), async (req, res) => {
+app.post('/companies/queue-message', authenticate, async (req, res) => {
   try {
-    const { recipient_ids, template_id, source_id } = req.body;
-    const attachments = req.files;
+    let { recipient_ids, template_id, source_id } = req.body;
+
+
+    const user = await getUserByEmailOrPhone(req.userEmail, req.phone_number);
+    if (user === null) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if the message template with the given ID exists and get its company ID
+    const templateInfo = await pool.query(
+      'SELECT * FROM MessageTemplates WHERE template_id = $1',
+      [template_id]
+    );
+
+    if (templateInfo.rowCount === 0) {
+      return res.status(404).json({ error: 'Message template not found' });
+    }
+
+    const companyId = templateInfo.rows[0].company_id;
+
+    // Check if the user is part of the company associated with the message template
+    const userCompany = await pool.query(
+      'SELECT * FROM CompanyUsers WHERE company_id = $1 AND user_id = $2',
+      [companyId, user.user_id]
+    );
+
+    if (userCompany.rowCount === 0) {
+      return res.status(403).json({ error: 'Unauthorized to access company' });
+    }
 
     // Validate input
     if (!Array.isArray(recipient_ids) || recipient_ids.length === 0) {
       return res.status(400).json({ error: 'Invalid recipient IDs' });
     }
-    if (!template_id || !source_id) {
-      return res.status(400).json({ error: 'Missing template ID or source ID' });
+    if (!template_id) {
+      return res.status(400).json({ error: 'Missing template ID' });
     }
 
-    // Deduct credits from the company for each recipient
-    const recipientCount = recipient_ids.length;
-    const creditsToDeduct = recipientCount;
-    await pool.query(
-      'UPDATE Companies SET credits = credits - $1 WHERE primary_email = $2',
-      [creditsToDeduct, req.userEmail]
-    );
 
-    // Save the sent message details to the database
-    const sentMessagePromises = recipient_ids.map(async (recipient_id) => {
-      const message_id = uuidv4();
-      await pool.query(
-        'INSERT INTO SentMessages (message_id, recipient_id, template_id, source_id) VALUES ($1, $2, $3, $4)',
-        [message_id, recipient_id, template_id, source_id]
+    //TODO: check if company id of recepients is the same as company id in template
+    if (!source_id) {
+
+      const type = "WhatsApp";
+      const newMessageSource = await pool.query(
+        'INSERT INTO MessageSources (company_id, type) VALUES ($1, $2) RETURNING *',
+        [companyId, type]
       );
-    });
-    await Promise.all(sentMessagePromises);
 
-    // Handle file attachments
-    const attachmentPaths = [];
-    if (attachments && attachments.length > 0) {
-      for (const attachment of attachments) {
-        const attachmentPath = attachment.path;
-        attachmentPaths.push(attachmentPath);
+      if (newMessageSource.rowCount === 0) {
+        res.status(500).send("Unable to create message source!")
+      }
+      else {
+        source_id = newMessageSource.rows[0].source_id;
       }
     }
+    // console.log();
+    const source = await pool.query(
+      'SELECT * FROM MessageSources WHERE company_id=$1 AND source_id = $2',
+      [companyId, source_id]
+    );
+    if (source.rowCount == 0) {
+      res.status(403).send("Unauthorise to use message source!")
+    }
 
-    res.status(200).json({ success: true });
+    scheduleMessages(recipient_ids, companyId, template_id, source_id)
+
+    whatsappApiService(req,res,source_id );
+
+    // res.status(200).json({ success: true });
   } catch (error) {
     console.error('Error sending a message:', error);
     res.status(500).json({ error: 'Failed to send the message' });
@@ -735,6 +816,7 @@ app.post('/companies/send-message', authenticate, upload.array('attachments'), a
 
 
 const csvtojson = require('csvtojson');
+const whatsappApiService = require('./whatsAppService');
 app.post('/process-file', authenticate, upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
