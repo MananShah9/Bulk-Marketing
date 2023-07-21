@@ -802,12 +802,24 @@ app.post('/process-file', authenticate, upload.single('file'), (req, res) => {
       const result = jsonObj.map((row) => {
         const name = row[columnNames.name]
         const mobileNumber = sanitizeMobileNumber(row[columnNames.mobileNumber])
-        if (mobileNumber != null && mobileNumber != "" && mobileNumber.length < 11 && name.length < 20)
+        if (mobileNumber != null && mobileNumber != "" && mobileNumber.length < 11 && name.length < 20) {
           return ({
             "name": name,
             "mobileNumber": mobileNumber,
           })
+        }
       }).filter((element) => (element != null));
+      //No header in data case:
+      const name = columnNames.name
+      const mobileNumber = sanitizeMobileNumber(columnNames.mobileNumber)
+
+      if (mobileNumber != null && mobileNumber != "" && mobileNumber.length < 11 && name.length < 20) {
+        result.push({
+          "name": name,
+          "mobileNumber": mobileNumber,
+        })
+      }
+
 
       return res.status(200).json(result);
     })
