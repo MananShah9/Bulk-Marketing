@@ -507,7 +507,7 @@ app.delete('/recipients', authenticate, async (req, res) => {
     const dbResp = await pool.query('UPDATE Recipients SET recipient_deleted = $1 WHERE recipient_id = ANY($2)', [true, recipientIds]);
     // res.sendStatus(200);
 
-    res.status(200).json({ rowsUpdates: dbResp.rowCount });
+    res.status(200).json({ rowsUpdated: dbResp.rowCount });
 
   } catch (error) {
     console.error('Error deleting recipients:', error);
@@ -643,7 +643,7 @@ app.delete('/message-templates/:templateId', authenticate, async (req, res) => {
     const dbResp = await pool.query('UPDATE MessageTemplates SET messageTemplate_deleted = $1  WHERE template_id = $2', [true, templateId]);
 
     // res.sendStatus(200);
-    res.status(200).json({ rowsUpdates: dbResp.rowCount });
+    res.status(200).json({ rowsUpdated: dbResp.rowCount });
   } catch (error) {
     console.error('Error deleting message template:', error);
     res.status(500).json({ error: 'An error occurred' });
