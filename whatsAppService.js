@@ -67,18 +67,28 @@ const whatsappApiService = async (req, res, source_id) => {
 
     // }
     const client = new Client({
+        qrMaxRetries: 1,
         authStrategy: new NoAuth(),
         // proxyAuthentication: { username: 'username', password: 'password' },
-        puppeteer: { 
+        puppeteer: {
             // args: ['--proxy-server=proxy-server-that-requires-authentication.example.com'],
             headless: true
         }
     });
+    let qrSent = false;
     client.on('qr', async (qr) => {
         // Generate and scan this code with your phone
         console.log('QR RECEIVED', qr);
         qrcode.generate(qr, { small: true });
-        res.send(qr);
+        if (!qrSent) {
+            qrSent=true;
+            return res.send(qr);
+
+        }
+        else{
+            await client.destroy();
+        }
+
         // await store.save({ session: source_id });
 
     });
@@ -98,6 +108,8 @@ const whatsappApiService = async (req, res, source_id) => {
             );
             if (to_send.rowCount == 0) {
                 moreMessagesPresent = false;
+                await client.logout();
+                await client.destroy();
             }
             else {
                 const recipient = await pool.query(
@@ -123,7 +135,7 @@ const whatsappApiService = async (req, res, source_id) => {
             }
 
         }
-        // client.logout();
+        // 
 
         // client.destroy();
 
