@@ -9,6 +9,8 @@ const pool = new Pool(dbConfig);
 
 // Initialize Express.js
 const app = express();
+const path = require('path')
+app.use('/static', express.static(path.join(__dirname, 'attachments')))
 app.use(express.json());
 app.use(helmet());
 
@@ -499,7 +501,7 @@ app.delete('/recipients', authenticate, async (req, res) => {
     }
 
     // Delete the recipients from the Recipients table for the specified recipient IDs
-    await pool.query('DELETE FROM Recipients WHERE recipient_id = ANY($1)', [recipientIds]);
+    const dbResp=await pool.query('DELETE FROM Recipients WHERE recipient_id = ANY($1)', [recipientIds]);
 
     res.sendStatus(200);
   } catch (error) {
@@ -512,7 +514,6 @@ app.delete('/recipients', authenticate, async (req, res) => {
 
 
 const multer = require('multer');
-const path = require('path');
 
 // Set up the storage for file uploads
 const storage = multer.diskStorage({
