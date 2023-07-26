@@ -459,8 +459,8 @@ app.get('/companies/:companyId/recipients', authenticate, async (req, res) => {
 
     // Retrieve recipients for the specified company
     const recipients = await pool.query(
-      'SELECT * FROM Recipients WHERE company_id = $1',
-      [companyId]
+      'SELECT * FROM Recipients WHERE company_id = $1 and recipient_deleted = $2',
+      [companyId, false]
     );
 
     res.status(200).json(recipients.rows);
@@ -504,10 +504,10 @@ app.delete('/recipients', authenticate, async (req, res) => {
 
     // Delete the recipients from the Recipients table for the specified recipient IDs
     // const dbResp = await pool.query('DELETE FROM Recipients WHERE recipient_id = ANY($1)', [recipientIds]);
-    const dbResp = await pool.query('UPDATE Recipients SET recipient_deleted = $1 WHERE recipient_id = ANY($2)', [true,recipientIds]);
+    const dbResp = await pool.query('UPDATE Recipients SET recipient_deleted = $1 WHERE recipient_id = ANY($2)', [true, recipientIds]);
     // res.sendStatus(200);
-    
-    res.status(200).json({rowsUpdates:dbResp.rowCount});
+
+    res.status(200).json({ rowsUpdates: dbResp.rowCount });
 
   } catch (error) {
     console.error('Error deleting recipients:', error);
@@ -595,8 +595,8 @@ app.get('/companies/:companyId/message-templates', authenticate, async (req, res
 
     // Retrieve message templates for the specified company
     const templates = await pool.query(
-      'SELECT * FROM MessageTemplates WHERE company_id = $1',
-      [companyId]
+      'SELECT * FROM MessageTemplates WHERE company_id = $1 and messageTemplate_deleted = $2',
+      [companyId, false]
     );
 
     res.status(200).json(templates.rows);
@@ -640,10 +640,10 @@ app.delete('/message-templates/:templateId', authenticate, async (req, res) => {
 
     // Delete the message template from the MessageTemplates table
     await pool.query('DELETE FROM MessageTemplates WHERE template_id = $1', [templateId]);
-    const dbResp=await pool.query('UPDATE MessageTemplates SET messageTemplate_deleted = $1  WHERE template_id = $2', [true,templateId]);
+    const dbResp = await pool.query('UPDATE MessageTemplates SET messageTemplate_deleted = $1  WHERE template_id = $2', [true, templateId]);
 
     // res.sendStatus(200);
-    res.status(200).json({rowsUpdates:dbResp.rowCount});
+    res.status(200).json({ rowsUpdates: dbResp.rowCount });
   } catch (error) {
     console.error('Error deleting message template:', error);
     res.status(500).json({ error: 'An error occurred' });
@@ -729,8 +729,8 @@ let scheduleMessages = async (recipient_ids, companyId, template_id, source_id) 
 
   for (const recipient of recipient_ids) {
     const recepientCompany = await pool.query(
-      'SELECT company_id FROM Recipients WHERE company_id=$1 AND recipient_id = $2',
-      [companyId, recipient]
+      'SELECT company_id FROM Recipients WHERE company_id=$1 AND recipient_id = $2 and recipient_deleted = $3',
+      [companyId, recipient, false]
     );
     if (recepientCompany.rowCount == 1) {
       const newSentMessages = await pool.query(
@@ -755,8 +755,8 @@ app.post('/companies/queue-message', authenticate, async (req, res) => {
 
     // Check if the message template with the given ID exists and get its company ID
     const templateInfo = await pool.query(
-      'SELECT * FROM MessageTemplates WHERE template_id = $1',
-      [template_id]
+      'SELECT * FROM MessageTemplates WHERE template_id = $1 and messageTemplate_deleted = $2',
+      [template_id, false]
     );
 
     if (templateInfo.rowCount === 0) {
