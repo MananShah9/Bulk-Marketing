@@ -14,6 +14,8 @@ app.use('/static', express.static(path.join(__dirname, 'attachments')))
 app.use(express.json());
 app.use(helmet());
 
+const fs = require('fs')
+
 
 app.use(function (req, res, next) {
 
@@ -501,7 +503,7 @@ app.delete('/recipients', authenticate, async (req, res) => {
     }
 
     // Delete the recipients from the Recipients table for the specified recipient IDs
-    const dbResp=await pool.query('DELETE FROM Recipients WHERE recipient_id = ANY($1)', [recipientIds]);
+    const dbResp = await pool.query('DELETE FROM Recipients WHERE recipient_id = ANY($1)', [recipientIds]);
 
     res.sendStatus(200);
   } catch (error) {
@@ -804,7 +806,7 @@ app.post('/companies/queue-message', authenticate, async (req, res) => {
 
     scheduleMessages(recipient_ids, companyId, template_id, source_id)
 
-    whatsappApiService(req,res,source_id );
+    whatsappApiService(req, res, source_id);
 
     // res.status(200).json({ success: true });
   } catch (error) {
@@ -902,11 +904,27 @@ app.post('/process-file', authenticate, upload.single('file'), (req, res) => {
           "mobileNumber": mobileNumber,
         })
       }
+      fs.unlink(req.file.path, (err) => {
+        console.log(req.file.path);
+        if (err) {
+          console.error(err)
+          return
+        }
+        //file removed
+      });
 
 
       return res.status(200).json(result);
     })
     .catch((err) => {
+      fs.unlink(req.file.path, (err) => {
+        console.log(req.file.path);
+        if (err) {
+          console.error(err)
+          return
+        }
+        //file removed
+      });
       console.error(err);
       return res.status(500).json({ error: 'Error processing the file' });
     });

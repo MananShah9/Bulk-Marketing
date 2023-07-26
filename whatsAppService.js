@@ -125,10 +125,10 @@ const whatsappApiService = async (req, res, source_id) => {
                 console.log("Sending message");
                 client.sendMessage('91' + recipient.rows[0]["contact_information"] + '@c.us', template.rows[0]["message_template"]);
                 //  Add query to mark que message as done
-                await pool.query(
-                    'UPDATE Companies SET credits = credits - $1 WHERE company_id = $2',
-                    [1, template.rows[0]["company_id"]]
-                );
+                // await pool.query(
+                //     'UPDATE Companies SET credits = credits - $1 WHERE company_id = $2',
+                //     [1, template.rows[0]["company_id"]]
+                // );
                 await pool.query('UPDATE SentMessages SET sendstatus = $1 WHERE message_id = $2', ["Sent", to_send.rows[0].message_id]);
 
 
