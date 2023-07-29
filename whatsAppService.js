@@ -72,7 +72,7 @@ const whatsappApiService = async (req, res, source_id) => {
         // proxyAuthentication: { username: 'username', password: 'password' },
         puppeteer: {
             // args: ['--proxy-server=proxy-server-that-requires-authentication.example.com'],
-            headless: true
+            headless: 'new'
         }
     });
     let qrSent = false;
@@ -86,6 +86,7 @@ const whatsappApiService = async (req, res, source_id) => {
 
         }
         else{
+            console.log("Destroying target in else");
             await client.destroy();
         }
 
@@ -108,8 +109,12 @@ const whatsappApiService = async (req, res, source_id) => {
             );
             if (to_send.rowCount == 0) {
                 moreMessagesPresent = false;
-                await client.logout();
-                await client.destroy();
+                setTimeout(async function () {
+                    console.log("Destroying in 0 rows left");
+                    
+                    await client.logout();
+                    await client.destroy();
+                }, 10000);
             }
             else {
                 const recipient = await pool.query(
@@ -120,10 +125,14 @@ const whatsappApiService = async (req, res, source_id) => {
                     'SELECT * FROM MessageTemplates WHERE template_id = $1',
                     [to_send.rows[0].template_id]
                 );
-
+                // console.log("_____________");
+                // console.log(template.rows[0]);
+                // console.log("_____________");
+                // console.log(recipient.rows[0]);
 
                 console.log("Sending message");
-                client.sendMessage('91' + recipient.rows[0]["contact_information"] + '@c.us', template.rows[0]["message_template"]);
+                let sendWhatsAppMessageStatus=await client.sendMessage('91' + recipient.rows[0]["contact_information"] + '@c.us', template.rows[0]["message_template"]);
+                // console.log(sendWhatsAppMessageStatus);
                 //  Add query to mark que message as done
                 // await pool.query(
                 //     'UPDATE Companies SET credits = credits - $1 WHERE company_id = $2',
