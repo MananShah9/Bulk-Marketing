@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const dbConfig = require('./src/config/dbConfig');
+const { MessageMedia } = require('whatsapp-web.js');
 
 const pool = new Pool(dbConfig);
 
@@ -81,11 +82,11 @@ const whatsappApiService = async (req, res, source_id) => {
         console.log('QR RECEIVED', qr);
         qrcode.generate(qr, { small: true });
         if (!qrSent) {
-            qrSent=true;
+            qrSent = true;
             return res.send(qr);
 
         }
-        else{
+        else {
             console.log("Destroying target in else");
             await client.destroy();
         }
@@ -111,7 +112,7 @@ const whatsappApiService = async (req, res, source_id) => {
                 moreMessagesPresent = false;
                 setTimeout(async function () {
                     console.log("Destroying in 0 rows left");
-                    
+
                     await client.logout();
                     await client.destroy();
                 }, 10000);
@@ -125,13 +126,19 @@ const whatsappApiService = async (req, res, source_id) => {
                     'SELECT * FROM MessageTemplates WHERE template_id = $1',
                     [to_send.rows[0].template_id]
                 );
+
+                let media;
+                if (template.rows[0]['attachment_filename'])
+                    media = MessageMedia.fromFilePath('./attachments/' + template.rows[0]['attachment_filename']);
+                console.log(media);
+                console.log(template.rows[0]['attachment_filename']);
                 // console.log("_____________");
                 // console.log(template.rows[0]);
                 // console.log("_____________");
                 // console.log(recipient.rows[0]);
 
                 console.log("Sending message");
-                let sendWhatsAppMessageStatus=await client.sendMessage('91' + recipient.rows[0]["contact_information"] + '@c.us', template.rows[0]["message_template"]);
+                let sendWhatsAppMessageStatus = await client.sendMessage('91' + recipient.rows[0]["contact_information"] + '@c.us', template.rows[0]["message_template"],options={media:media});
                 // console.log(sendWhatsAppMessageStatus);
                 //  Add query to mark que message as done
                 // await pool.query(
