@@ -130,8 +130,6 @@ const whatsappApiService = async (req, res, source_id) => {
                 let media;
                 if (template.rows[0]['attachment_filename'])
                     media = MessageMedia.fromFilePath('./attachments/' + template.rows[0]['attachment_filename']);
-                console.log(media);
-                console.log(template.rows[0]['attachment_filename']);
                 // console.log("_____________");
                 // console.log(template.rows[0]);
                 // console.log("_____________");
